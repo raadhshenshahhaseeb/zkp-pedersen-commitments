@@ -6,14 +6,6 @@ import (
 	"math/big"
 )
 
-func getVerifierECPoint(curve elliptic.Curve) ECPoint {
-	return generateECPoints(seeding(), 1, curve)[0]
-}
-
-func getScalarFromVerifier() *big.Int {
-	return RandomBigInt()
-}
-
 func verify(curve elliptic.Curve,
 	generator, blinding ECPoint,
 	pi, fu, gu, hu *big.Int,
@@ -22,13 +14,11 @@ func verify(curve elliptic.Curve,
 	piBx, piBy := curve.ScalarMult(blinding.X, blinding.Y, pi.Bytes())
 
 	negXy := new(big.Int).Neg(piBy)
-	negXy.Mod(negXy, curve.Params().P)
+	_negXy := new(big.Int).Mod(negXy, curve.Params().P)
 
-	holds := false
-
-	holds = evaluate(curve, ECPoint{X: piBx, Y: negXy}, commitmentsF, fu, generator)
-	holds = evaluate(curve, ECPoint{X: piBx, Y: negXy}, commitmentsG, gu, generator)
-	holds = evaluate(curve, ECPoint{X: piBx, Y: negXy}, commitmentsH, hu, generator)
+	holds := evaluate(curve, ECPoint{X: piBx, Y: _negXy}, commitmentsF, fu, generator) &&
+		evaluate(curve, ECPoint{X: piBx, Y: _negXy}, commitmentsG, gu, generator) &&
+		evaluate(curve, ECPoint{X: piBx, Y: _negXy}, commitmentsH, hu, generator)
 
 	if !holds {
 		fmt.Println("commitments not held")
