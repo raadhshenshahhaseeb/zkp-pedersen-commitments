@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/elliptic"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math/big"
 )
 
-func prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
+func getPolynomials() [][]*big.Int {
 	fx := []*big.Int{
 		big.NewInt(4), // f_0
 		big.NewInt(2), // f_1.x
@@ -25,44 +27,71 @@ func prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
 		big.NewInt(2), // h_2.x^2
 	}
 
-	var cf []ECPoint
-	for _, coeff := range fx {
-		cf = append(cf, commit(coeff, generator, blinding, curve))
+	return [][]*big.Int{fx, gx, hx}
+}
+
+func getBlindingFactor(blindingScalars []*big.Int, u *big.Int) *big.Int {
+	constant := new(big.Int).Set(blindingScalars[0])
+
+	linear := new(big.Int).Mul(blindingScalars[1], u)
+
+	quadratic := new(big.Int).Mul(blindingScalars[2], new(big.Int).Mul(u, u))
+
+	pi := new(big.Int).Add(constant, linear)
+	pi.Add(pi, quadratic)
+
+	return pi
+}
+
+// Function to hash the commitments for a polynomial
+func hashCommitments(commitments []ECPoint) []byte {
+	hasher := sha256.New()
+
+	for _, commitment := range commitments {
+		hasher.Write(commitment.X.Bytes())
+		hasher.Write(commitment.Y.Bytes())
 	}
 
-	var cg []ECPoint
-	for _, coeff := range gx {
-		cg = append(cg, commit(coeff, generator, blinding, curve))
+	return hasher.Sum(nil)
+}
+
+func prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
+	polynomials := getPolynomials()
+
+	var polynomialsCommitments [][]ECPoint
+	var blindingScalars [][]*big.Int
+	var hashes [][]byte
+
+	for _, polynomial := range polynomials {
+		var commitments []ECPoint
+		var blindingScalarForCommitment []*big.Int
+		for _, coeff := range polynomial {
+			blindingScalar := randomFieldElement(curve)
+			commitments = append(commitments, commit(coeff, blindingScalar, generator, blinding, curve))
+			blindingScalarForCommitment = append(blindingScalarForCommitment, blindingScalar)
+		}
+		polynomialsCommitments = append(polynomialsCommitments, commitments)
+		blindingScalars = append(blindingScalars, blindingScalarForCommitment)
+		hashes = append(hashes, hashCommitments(commitments))
 	}
 
-	var ch []ECPoint
-	for _, coeff := range hx {
-		ch = append(ch, commit(coeff, generator, blinding, curve))
+	u := challenge(curve, hashes)
+	if u == nil {
+		errors.New("challenge cannot be nil")
+		return
 	}
 
-	// random scalar u
-	u := big.NewInt(10)
+	var evaluatedPolynomials []*big.Int
+	for _, polynomial := range polynomials {
+		evaluatedPolynomials = append(evaluatedPolynomials, polynomialEvaluation(u, polynomial, blinding))
+	}
 
-	pi := new(big.Int).Add(new(big.Int).Mul(u, u), u)
-	pi.Add(pi, big.NewInt(1)) // pi = u^2 + u + 1
+	var commitments []ECPoint
 
-	fu := polynomialEvaluation(u, fx, blinding)
-	gu := polynomialEvaluation(u, gx, blinding)
-	hu := polynomialEvaluation(u, hx, blinding)
+	for _, polyCommitments := range polynomialsCommitments {
+		commitments = append(commitments, combineCommitments(polyCommitments, u, curve))
+	}
 
-	commitmentsF := combineCommitments(cf, u, curve)
-	commitmentsG := combineCommitments(cg, u, curve)
-	commitmentsH := combineCommitments(ch, u, curve)
-
-	// testing
-
-	check(cf, blinding, generator, curve, fu)
-
-	// testing
-	verify(curve,
-		generator, blinding,
-		pi, fu, gu, hu,
-		commitmentsF, commitmentsG, commitmentsH)
 }
 
 // this function is for testing purposes, probably will turn it into testcase
@@ -94,7 +123,7 @@ func check(points []ECPoint, blinding, generator ECPoint, curve elliptic.Curve, 
 	}
 }
 
-func polynomialEvaluation(u *big.Int, polynomial []*big.Int, blinding ECPoint) *big.Int {
+func polynomialEvaluation(u *big.Int, polynomial []*big.Int) *big.Int {
 	v0 := polynomial[0]
 	v1 := new(big.Int).Mul(polynomial[1], u)
 	v2 := new(big.Int).Mul(polynomial[2], new(big.Int).Mul(u, u))
@@ -124,7 +153,7 @@ func combineCommitments(commitments []ECPoint, value *big.Int, curve elliptic.Cu
 	}
 }
 
-func commit(value *big.Int, generator, blinding ECPoint, curve elliptic.Curve) ECPoint {
+func commit(value, blindingScalar *big.Int, generator, blinding ECPoint, curve elliptic.Curve) ECPoint {
 	gX, gY := curve.ScalarMult(generator.X, generator.Y, value.Bytes())
 
 	commX, commY := curve.Add(gX, gY, blinding.X, blinding.Y)

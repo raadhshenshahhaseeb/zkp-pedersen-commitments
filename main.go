@@ -82,3 +82,12 @@ func hashToBigInt(data []byte, mod *big.Int) *big.Int {
 	x.Mod(x, mod)
 	return x
 }
+
+func randomFieldElement(curve elliptic.Curve) *big.Int {
+	n, err := rand.Int(rand.Reader, new(big.Int).Sub(curve.Params().P, big.NewInt(1)))
+	if err != nil {
+		return nil
+	}
+
+	return n.Add(n, big.NewInt(1))
+}
