@@ -8,30 +8,22 @@ import (
 	"math/big"
 )
 
-func challenge(curve elliptic.Curve, hashes [][]byte) *big.Int {
+func challenge(curve elliptic.Curve, hashedCommitment []byte) *big.Int {
 	hasher := sha256.New()
 
-	// Concatenate all hashes into a single hash
-	for _, hash := range hashes {
-		hasher.Write(hash) // Directly write each hash to the hasher
-	}
+	hasher.Write(hashedCommitment)
 
-	// Compute the final hash value
 	finalHash := hasher.Sum(nil)
 
-	// Generate a random big.Int in the range [0, P-1]
 	blindingScalar, err := rand.Int(rand.Reader, curve.Params().P)
 	if err != nil {
 		return nil
 	}
 
-	// Convert the final hash to a big.Int
 	hashPart := new(big.Int).SetBytes(finalHash)
 
-	// Combine the hashPart and the randomPart by adding them
 	u := new(big.Int).Add(hashPart, blindingScalar)
 
-	// Reduce u mod P to ensure it is within the field F_P
 	u.Mod(u, curve.Params().P)
 
 	return u

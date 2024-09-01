@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/elliptic"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"math/big"
 )
@@ -55,41 +54,67 @@ func hashCommitments(commitments []ECPoint) []byte {
 	return hasher.Sum(nil)
 }
 
+type CommitmentWithBlinding struct {
+	Commitment     ECPoint
+	BlindingScalar *big.Int
+}
+
+type PolynomialCommitments struct {
+	Commitments []CommitmentWithBlinding
+	Hash        []byte
+}
+
 func prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
 	polynomials := getPolynomials()
 
-	var polynomialsCommitments [][]ECPoint
-	var blindingScalars [][]*big.Int
-	var hashes [][]byte
+	var polynomialCommitmentData []PolynomialCommitments
 
 	for _, polynomial := range polynomials {
-		var commitments []ECPoint
-		var blindingScalarForCommitment []*big.Int
+		var polynomialCommitments []CommitmentWithBlinding
 		for _, coeff := range polynomial {
 			blindingScalar := randomFieldElement(curve)
-			commitments = append(commitments, commit(coeff, blindingScalar, generator, blinding, curve))
-			blindingScalarForCommitment = append(blindingScalarForCommitment, blindingScalar)
+			commitment := commit(coeff, blindingScalar, generator, blinding, curve)
+			polynomialCommitments = append(polynomialCommitments, CommitmentWithBlinding{
+				Commitment:     commitment,
+				BlindingScalar: blindingScalar,
+			})
 		}
-		polynomialsCommitments = append(polynomialsCommitments, commitments)
-		blindingScalars = append(blindingScalars, blindingScalarForCommitment)
-		hashes = append(hashes, hashCommitments(commitments))
+
+		// Hash the commitments for the current polynomial
+		var commitments []ECPoint
+		for _, c := range polynomialCommitments {
+			commitments = append(commitments, c.Commitment)
+		}
+		commitmentsHash := hashCommitments(commitments)
+
+		// Store the commitments and the hash
+		polynomialCommitmentData = append(polynomialCommitmentData, PolynomialCommitments{
+			Commitments: polynomialCommitments,
+			Hash:        commitmentsHash,
+		})
 	}
 
-	u := challenge(curve, hashes)
-	if u == nil {
-		errors.New("challenge cannot be nil")
-		return
+	// Assuming polynomialCommitmentData contains all the PolynomialCommitments structs
+	var allCommitmentsForPolynomials [][]ECPoint
+
+	for _, polyCommitData := range polynomialCommitmentData {
+		var commitments []ECPoint
+		for _, commitmentWithBlinding := range polyCommitData.Commitments {
+			commitments = append(commitments, commitmentWithBlinding.Commitment)
+		}
+		allCommitmentsForPolynomials = append(allCommitmentsForPolynomials, commitments)
 	}
 
-	var evaluatedPolynomials []*big.Int
-	for _, polynomial := range polynomials {
-		evaluatedPolynomials = append(evaluatedPolynomials, polynomialEvaluation(u, polynomial, blinding))
-	}
+	// Now allCommitmentsForPolynomials is a slice of slices where each inner slice contains the ECPoints (commitments) for a polynomial
 
-	var commitments []ECPoint
-
-	for _, polyCommitments := range polynomialsCommitments {
-		commitments = append(commitments, combineCommitments(polyCommitments, u, curve))
+	var challenges []*big.Int
+	// polyEvalRes holds results of polynomial evauluations at a scalar challenge u
+	var polyEvalRes []*big.Int
+	var combinedCommitments []ECPoint
+	for i, data := range polynomialCommitmentData {
+		challenges = append(challenges, challenge(curve, data.Hash))
+		polyEvalRes = append(polyEvalRes, polynomialEvaluation(challenges[i], polynomials[i]))
+		combinedCommitments = append(combinedCommitments, combineCommitments(allCommitmentsForPolynomials[i], challenges[i], curve))
 	}
 
 }
