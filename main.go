@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"math/big"
-)
 
-type ECPoint struct {
-	X, Y *big.Int
-}
+	"github.com/raadhshenshahhaseeb/pedersen-commitments/scheme"
+)
 
 func seeding() []byte {
 	seed := make([]byte, 32)
@@ -28,13 +26,13 @@ func main() {
 
 	points := generateECPoints(seeding(), 3, curve)
 
-	fmt.Println(curve.IsOnCurve(points[0].X, points[0].Y))
-	fmt.Println(curve.IsOnCurve(points[1].X, points[1].Y))
-	prover(points[0], points[1], curve)
+	fmt.Println("is generator point on curve: ", curve.IsOnCurve(points[0].X, points[0].Y))
+	fmt.Println("is blinding point on curve: ", curve.IsOnCurve(points[1].X, points[1].Y))
+	scheme.Prover(points[0], points[1], curve)
 }
 
-func generateECPoints(seed []byte, n int, curve elliptic.Curve) []ECPoint {
-	var points []ECPoint
+func generateECPoints(seed []byte, n int, curve elliptic.Curve) []scheme.ECPoint {
+	var points []scheme.ECPoint
 
 	for i := 0; len(points) < n; i++ {
 		// Create a new hash for each x value
@@ -45,9 +43,9 @@ func generateECPoints(seed []byte, n int, curve elliptic.Curve) []ECPoint {
 		y, yNeg := findYForX(curve, x)
 		if y != nil {
 			if randBit(seed) == 0 {
-				points = append(points, ECPoint{X: new(big.Int).Set(x), Y: y})
+				points = append(points, scheme.ECPoint{X: new(big.Int).Set(x), Y: y})
 			} else {
-				points = append(points, ECPoint{X: new(big.Int).Set(x), Y: yNeg})
+				points = append(points, scheme.ECPoint{X: new(big.Int).Set(x), Y: yNeg})
 			}
 		}
 	}
@@ -81,13 +79,4 @@ func hashToBigInt(data []byte, mod *big.Int) *big.Int {
 	x := new(big.Int).SetBytes(hash[:])
 	x.Mod(x, mod)
 	return x
-}
-
-func randomFieldElement(curve elliptic.Curve) *big.Int {
-	n, err := rand.Int(rand.Reader, new(big.Int).Sub(curve.Params().P, big.NewInt(1)))
-	if err != nil {
-		return nil
-	}
-
-	return n.Add(n, big.NewInt(1))
 }

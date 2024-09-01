@@ -1,4 +1,4 @@
-package main
+package scheme
 
 import (
 	"crypto/elliptic"
@@ -29,42 +29,29 @@ func challenge(curve elliptic.Curve, hashedCommitment []byte) *big.Int {
 	return u
 }
 
-func verify(curve elliptic.Curve,
+func VerifyEquation(curve elliptic.Curve,
 	generator, blinding ECPoint,
-	pi, fu, gu, hu *big.Int,
-	commitments ECPoint) bool {
+	pi, evaluatedPolynomial *big.Int,
+	combinedCommitment ECPoint) bool {
 
 	piBx, piBy := curve.ScalarMult(blinding.X, blinding.Y, pi.Bytes())
 
 	negXy := new(big.Int).Neg(piBy)
 	_negXy := new(big.Int).Mod(negXy, curve.Params().P)
 
-	holds := evaluate(curve, ECPoint{X: piBx, Y: _negXy}, commitments, fu, generator)
+	lhsX, lhsY := curve.Add(combinedCommitment.X, combinedCommitment.Y, piBx, _negXy)
+	rhsX, rhsY := curve.ScalarMult(generator.X, generator.Y, evaluatedPolynomial.Bytes())
 
-	if !holds {
-		fmt.Println("commitments not held")
-		return false
-	}
-
-	return holds
-}
-
-func evaluate(curve elliptic.Curve,
-	point, commitment ECPoint,
-	evaluatedPoly *big.Int, generator ECPoint) bool {
-
-	lhsX, lhsY := curve.Add(commitment.X, commitment.Y, point.X, point.Y)
-	rhsX, rhsY := curve.ScalarMult(generator.X, generator.Y, evaluatedPoly.Bytes())
-
+	var holds bool = false
 	if rhsX.Cmp(lhsX) == 0 && rhsY.Cmp(lhsY) == 0 {
-		fmt.Println("LHS")
+		fmt.Println("\nLHS")
 		fmt.Println("lhsX: ", lhsX.String())
 		fmt.Println("lhsY: ", lhsY.String())
 		fmt.Println("\nRHS")
 		fmt.Println("rhsX: ", rhsX.String())
 		fmt.Println("rhsY: ", rhsY.String())
 		fmt.Println("matched")
-		return true
+		holds = true
 	} else {
 		fmt.Println("LHS")
 		fmt.Println("lhsX: ", lhsX.String())
@@ -72,7 +59,17 @@ func evaluate(curve elliptic.Curve,
 		fmt.Println("\nRHS")
 		fmt.Println("rhsX: ", rhsX.String())
 		fmt.Println("rhsY: ", rhsY.String())
+		holds = false
 	}
 
-	return false
+	return holds
+}
+
+func VerifyRelation(commitmentFu, commitmentGu, commitmentHu ECPoint, curve elliptic.Curve, u *big.Int) bool {
+	// Assuming we have some operation that can combine points in a way that respects the underlying scalar multiplication
+	// You might need a more advanced operation here, depending on how commitments are structured
+	combinedX, combinedY := curve.ScalarMult(commitmentFu.X, commitmentFu.Y, u.Bytes())
+	combinedX, combinedY = curve.Add(combinedX, combinedY, commitmentGu.X, commitmentGu.Y)
+
+	return combinedX.Cmp(commitmentHu.X) == 0 && combinedY.Cmp(commitmentHu.Y) == 0
 }
