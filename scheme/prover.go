@@ -4,7 +4,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
 	"math/big"
 )
 
@@ -34,29 +33,56 @@ func getPolynomials() [][]*big.Int {
 	return [][]*big.Int{fx, gx, hx}
 }
 
-func Prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
-	polynomials := getPolynomials()
-	var combineCommitments []ECPoint
-	var u []*big.Int
-
-	for _, polynomial := range polynomials {
-		holds, combinedCommitment, challengeU := evaluate(polynomial, curve, generator, blinding)
-		if holds {
-			fmt.Println("commitment for polynomial holds")
-		}
-		combineCommitments = append(combineCommitments, combinedCommitment)
-		u = append(u, challengeU)
-	}
-
-	verified := VerifyRelation(combineCommitments[0], combineCommitments[1], combineCommitments[2], curve, new(big.Int).Add(new(big.Int).Add(u[0], u[1]), u[2]))
-	if verified {
-		fmt.Println("commitment relation verified")
-	} else {
-		fmt.Println("commitment relation not verified")
-	}
+type polynomialEval struct {
+	commitments []ECPoint
+	scalars     []*big.Int
 }
 
-func evaluate(polynomial []*big.Int, curve elliptic.Curve, generator, blinding ECPoint) (bool, ECPoint, *big.Int) {
+func Prover(generator ECPoint, blinding ECPoint, curve elliptic.Curve) {
+	polynomials := getPolynomials()
+
+	var polynomialEvals []polynomialEval
+	var commitmentsForChallenge []ECPoint
+	var combineCommitments []ECPoint
+
+	for _, polynomial := range polynomials {
+		commitments, blindingScalars := evaluateCommitments(polynomial, curve, generator, blinding)
+		polynomialEvals = append(polynomialEvals, polynomialEval{commitments: commitments, scalars: blindingScalars})
+		commitmentsForChallenge = append(commitmentsForChallenge, commitments...)
+	}
+
+	// u is a challenge scalar computed from the hash of commitments
+	u := challenge(curve, hashCommitments(commitmentsForChallenge))
+
+	for _, polynomial := range polynomials {
+		evaluatedPolynomial := polynomialEvaluation(u, polynomial)
+		pi := getBlindingFactor([getPolynomials()[]], u)
+	}
+
+	// pi is the computed blinding factor computed using pi = u^2.gamma + u.beta + alpha which are the blinding Scalars for the polynomial
+
+	combinedCommitment := combineCommitments(commitments, u, curve)
+
+	return VerifyEquation(curve, generator, blinding, pi, evaluatedPolynomial, combinedCommitment), combinedCommitment, u
+
+	// for _, polynomial := range polynomials {
+	// 	holds, combinedCommitment, challengeU := evaluateCommitments(polynomial, curve, generator, blinding)
+	// 	if holds {
+	// 		fmt.Println("commitment for polynomial holds")
+	// 	}
+	// 	combineCommitments = append(combineCommitments, combinedCommitment)
+	// 	u = append(u, challengeU)
+	// }
+
+	// verified := VerifyRelation(combineCommitments[0], combineCommitments[1], combineCommitments[2], curve, new(big.Int).Add(new(big.Int).Add(u[0], u[1]), u[2]))
+	// if verified {
+	// 	fmt.Println("commitment relation verified")
+	// } else {
+	// 	fmt.Println("commitment relation not verified")
+	// }
+}
+
+func evaluateCommitments(polynomial []*big.Int, curve elliptic.Curve, generator, blinding ECPoint) ([]ECPoint, []*big.Int) {
 	var commitments []ECPoint
 	var blindingScalars []*big.Int
 
@@ -66,18 +92,7 @@ func evaluate(polynomial []*big.Int, curve elliptic.Curve, generator, blinding E
 		blindingScalars = append(blindingScalars, blindingS)
 	}
 
-	// u is a challenge scalar computed from the hash of commitments
-	u := challenge(curve, hashCommitments(commitments))
-
-	evaluatedPolynomial := polynomialEvaluation(u, polynomial)
-
-	// pi is the computed blinding factor computed using pi = u^2.gamma + u.beta + alpha which are the blinding Scalars for the polynomial
-	pi := getBlindingFactor(blindingScalars, u)
-
-	combinedCommitment := combineCommitments(commitments, u, curve)
-
-	return VerifyEquation(curve, generator, blinding, pi, evaluatedPolynomial, combinedCommitment), combinedCommitment, u
-
+	return commitments, blindingScalars
 }
 
 func commit(coeff, blindingS *big.Int, generatorP, blindingP ECPoint, curve elliptic.Curve) ECPoint {
